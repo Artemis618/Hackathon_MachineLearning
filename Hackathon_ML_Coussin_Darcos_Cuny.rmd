@@ -1,0 +1,364 @@
+---
+title: "Coussin_Darcos_Cuny_DIA3_Group4"
+author: "Coussin_Darcos_Cuny"
+date: "10/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Install Library
+
+```{r}
+ library(randomForest)
+ library(rpart.plot)
+ library(rpart)
+ library(ggplot2)
+ library(gbm)
+ library(caTools)
+ library(ROCR)
+ library(corrplot)
+ library(caret)
+ library(knitr)
+ library(naivebayes)
+ library(e1071)
+ library(neuralnet)
+```
+
+# Data exploration
+
+Import the train and test files into R Studio
+
+```{r}
+
+train <- read.csv("train.csv") # We will use train to build a model
+
+test <- read.csv("test.csv") # We will use test to test our model on real data and generate a file on the model of sample.csv
+
+head(train) # To see the columns
+```
+
+For some colomn, use unique() to see the values that the variable can take
+
+Number of unique values for SeriousDlqin2yrs
+
+```{r}
+unique(train$SeriousDlqin2yrs)
+```
+We saw that there is some NA in the colomn 'SeriousDlqin2yrs' in our train so we can't use this rows
+
+```{r}
+train <- na.omit(train) 
+```
+
+
+### Transform qualitative variables into quantitative ones
+
+We use levels because we can decide the order of the values
+There is no qualitative variables, but here is the code to change qualitative variables into quantitative ones, if necessary
+
+```{r}
+# Label encoding on train set
+#train$NameOfVariable <- as.numeric(factor(train$NameOfVariable, levels=c("put here the different levels, such as low medium and high")))
+
+
+# Label encoding on test set
+#test$NameOfVariable <- as.numeric(factor(test$NameOfVariable, 
+#levels=c("put here the different levels, such as low medium and high")))
+```
+
+# View the data 
+
+```{r}
+names(train) #to see the columns
+
+hist(train$SeriousDlqin2yrs)
+
+hist(train$RevolvingUtilizationOfUnsecuredLines)
+
+hist(train$age)
+
+hist(train$NumberOfTime30_59DaysPastDueNotWorse)
+
+hist(train$DebtRatio)
+ 
+hist(train$MonthlyIncome)
+
+hist(train$NumberOfOpenCreditLinesAndLoans)
+
+hist(train$NumberOfTimes90DaysLate)
+
+hist(train$NumberRealEstateLoansOrLines)
+
+hist(train$NumberOfTime60_89DaysPastDueNotWorse)
+
+hist(train$NumberOfDependents)
+```
+
+# Data preprocessing
+
+We scale ordered numerical data, so it's normalized (witout the response colomn full with 0 and 1)
+
+```{r}
+train_scaled <- train
+train_scaled[,-1] <- scale(train[,-1])
+
+test_scaled <- test
+test_scaled<- scale(test)
+```
+
+We wanted to see the correlation between the variables
+
+```{r fig.height = 20, fig.width = 20, title = "Correlation between the variables"}
+train_cor =cor(train_scaled)
+corrplot(train_cor,addCoef.col ='black', type = 'lower', diag = FALSE,order = 'AOE', method = 'color')
+```
+
+If needed, this code is for delete one of two variables with a correlation highter than 0.80. Because it's not neccessary to have two variables explaining the same thing, with the same impact.
+
+```{r}
+#high_Cor <- findCorrelation(train_cor, cutoff = .80)
+#train_quant = train_scaled[,-1]
+#filtered_Train = train_quant[, -high_Cor]
+#filtered_Train_cor = cor(filtered_Train)
+#corrplot(filtered_Train_cor,order="AOE",tl.cex = .75,type = 'lower', diag = FALSE )
+```
+
+# Data Modeling
+
+### Split the data
+
+We split the train frame into two parts : training_set and test_set. It's for testing our differents models. We also have created two variables training_set.scaled and test_set.scaled.
+
+```{r}
+set.seed(976)
+split <- sample.split(train, SplitRatio = 0.75)
+training_set <- subset(train, split == TRUE)
+training_set.scaled <- subset(train_scaled, split == TRUE)
+test_set <- subset(train, split == FALSE)
+test_set.scaled <- subset(train_scaled, split == FALSE)
+```
+
+### Accuracy Function
+
+```{r}
+Accuracy <- function(y, y_hat) {mean(y == y_hat)}
+```
+
+
+For each model, we call the corresponding function on a train set, then the predict one on the test set. Finally, we transform the prediction into a number 1 if it's higther than 0.5 or 0 if it's not. (The last step is only for some models)
+
+For all the models, we use our Accuracy function to calculate the accuracy (Number of good responses/Number of responses)
+
+We try to change the colomn used in the training by deleting some of them or changing them with the log function to give them less importance or on the contrary with the exp function.
+
+set.seed(976) : We used 976 because it's the 3 last numbers in the id on one of our student card.
+
+### Logistic regression
+
+```{r}
+set.seed(976)
+classifier.logreg <- glm(SeriousDlqin2yrs ~ ., family = binomial, data=training_set.scaled)
+classifier.logreg.pred <- predict(classifier.logreg, newdata = test_set.scaled, type="response")
+classifier.logreg.pred_0_1 <- ifelse(classifier.logreg.pred >= 0.5, 1,0)
+```
+
+```{r}
+classifier.logreg.acc <- Accuracy(classifier.logreg.pred_0_1, test_set$SeriousDlqin2yrs)
+classifier.logreg.acc
+```
+
+### SVM
+
+The split "training_set.mini" is for the models which need too much time to compile so we choose to train them with less data just the time to find the good parameters.
+
+```{r}
+set.seed(976)
+split2 <- sample.split(train, SplitRatio = 0.20)
+training_set.mini <- subset(train, split2 == TRUE)
+training_set.scaled.mini <- subset(train_scaled, split2 == TRUE)
+```
+
+We try differents gamma and cost but in any case it wasn't enough precise so we prefered to spend more time on better models such as the boosting tree.
+
+```{r}
+classifier.svm <- svm(SeriousDlqin2yrs
+ ~ ., data = training_set.scaled.mini, cost = 10, gamma = 0.01, scaled=F)
+classifier.svm.predict <- predict(classifier.svm, test_set.scaled)
+classifier.svm.pred_0_1 <- ifelse(classifier.svm.predict >= 0.5, 1,0)
+classifier.svm.acc <- Accuracy(classifier.svm.pred_0_1, test_set.scaled$SeriousDlqin2yrs)
+
+summary(classifier.svm)
+```
+
+```{r}
+classifier.svm.acc
+```
+### Bagging Tree
+
+```{r}
+set.seed(976)
+classifier.bagging <- randomForest(SeriousDlqin2yrs ~ .,data = training_set.mini)
+
+classifier.bagging.pred <- predict(classifier.bagging, newdata = test_set, type="class")
+classifier.bagging.pred <- ifelse(classifier.bagging.pred >= 0.5, 1,0)
+classifier.bagging.acc <- Accuracy(classifier.bagging.pred, test_set$SeriousDlqin2yrs)
+
+summary(classifier.bagging)
+```
+
+```{r}
+classifier.bagging.acc
+```
+
+For randomForest, Boosting Tree, Decision Tree et Naives Bayes
+
+To run some models, we changed the numerical target colomn into a factor one. 
+
+```{r}
+training_set$SeriousDlqin2yrs <- as.factor(training_set$SeriousDlqin2yrs)
+training_set.scaled$SeriousDlqin2yrs<- as.factor(training_set.scaled$SeriousDlqin2yrs)
+
+training_set.mini$SeriousDlqin2yrs <- as.factor(training_set.mini$SeriousDlqin2yrs)
+training_set.scaled.mini$SeriousDlqin2yrs<- as.factor(training_set.scaled.mini$SeriousDlqin2yrs)
+```
+
+### Random Forest
+
+```{r}
+set.seed(976)
+classifier.random_forest <- randomForest(
+  SeriousDlqin2yrs ~ .,
+  data = training_set.mini,
+  mtry = as.integer(sqrt(ncol(training_set)-1)),
+  importance = T,
+  ntrees = 300
+)
+classifier.random_forest.pred <- predict(classifier.random_forest, newdata = test_set, type="class")
+classifier.random_forest.acc <- Accuracy(classifier.random_forest.pred, test_set$SeriousDlqin2yrs)
+
+summary(classifier.random_forest)
+```
+
+```{r}
+classifier.random_forest.acc
+```
+
+### Decision tree 
+
+```{r}
+classifier.tree <- rpart(SeriousDlqin2yrs ~ ., data = training_set)
+classifier.tree.pred <- predict(classifier.tree, newdata = test_set, type="class")
+classifier.tree.acc <- Accuracy(classifier.tree.pred, test_set$SeriousDlqin2yrs)
+
+summary(classifier.tree)
+```
+
+```{r}
+classifier.tree.acc
+```
+### Naiives Bayes
+
+```{r}
+classifier.naive_bayes <- naive_bayes(SeriousDlqin2yrs ~ ., data = training_set, usekernel = T, kernel = "gaussian")
+classifier.naive_bayes.predict <- predict(classifier.naive_bayes, test_set, type = 'prob')
+#print(classifier.naive_bayes.predict)
+classifier.naive_bayes.predict <- classifier.naive_bayes.predict[,2]
+classifier.naive_bayes.predict <- ifelse(classifier.naive_bayes.predict >= 0.5, 1,0)
+classifier.naive_bayes.acc <- Accuracy(classifier.naive_bayes.predict, test_set$SeriousDlqin2yrs)
+
+summary(classifier.naive_bayes)
+```
+
+```{r}
+classifier.naive_bayes.acc
+```
+### Gradient Boosting Tree
+
+We saw that it was a really good model, so we try to change the parameters. We change the number of trees (180,200,220 etc.) and we notice that 200 was the best. We also try with a depth equals to 3,4 or 5 and retained 4.
+
+```{r}
+set.seed(976)
+classifier.boosting <- gbm(as.character(SeriousDlqin2yrs
+) ~ ., distribution="bernoulli", data=training_set.scaled.mini, n.trees = 200, shrinkage = 0.015, interaction.depth = 4, keep.data = TRUE, n.cores = 5)
+
+classifier.boosting.pred <- predict(classifier.boosting, newdata = test_set.scaled, type="response")
+
+classifier.boosting.pred <- ifelse(classifier.boosting.pred >= 0.5, 1,0)
+classifier.boosting.acc <- Accuracy(classifier.boosting.pred, test_set$SeriousDlqin2yrs)
+
+summary(classifier.boosting)
+```
+
+```{r}
+classifier.boosting.acc
+```
+
+### Neural Network
+
+We had the time to submit just one time this model because it took some time to run it. It was our best model even if boosting tree were close.
+
+```{r}
+# fit neural network
+nn=neuralnet(training_set.mini$SeriousDlqin2yrs~.,training_set.mini, hidden=4,act.fct = "logistic",
+                linear.output = FALSE)
+```
+
+```{r}
+Predict=compute(nn,test_set)
+prob <- Predict$net.result
+pred <- ifelse(prob>=0.5, 1, 0)
+neural.acc <- Accuracy(pred[,2], test_set$SeriousDlqin2yrs)
+neural.acc
+```
+
+```{r fig.height = 20, fig.width = 20}
+plot(nn)
+```
+
+
+# Final Model
+
+We looked at the accuracy of each model to determine the best one. We can see that boosting tree has the best accuracy. That's why we submited 8 times (on 11 submissions) a result obtained with this method. Eventhough, we tried every other method on R. When we tried the neural network method on a bigger train set, we obtained our best score with this method. But the time of execution was too long so we only had the time to submit it once. The accuracy was better on kaggle than on our R studio, one of the reason is that the train set had more data than the mini trainset used to practice (with a real train set the time of execution would have been even longer).
+
+```{r}
+accuracies_table <- data.frame(
+  Model = c("Logistic Regression","SVM", "Random Forest","Decision Tree", "Naive Bayes","Gradient Boosting Tree", "Bagging Tree" ,"Neural Network" ),
+  TestAccuracy = c(classifier.logreg.acc, classifier.svm.acc,classifier.random_forest.acc, classifier.tree.acc, classifier.naive_bayes.acc,  classifier.boosting.acc,classifier.bagging.acc, neural.acc )
+  )
+kable(accuracies_table)
+```
+
+To submit our model, we run it on the entire train.csv set and made the prediction on the entire test.csv
+
+```{r}
+# fit neural network
+nn=neuralnet(training_set.mini$SeriousDlqin2yrs~.,training_set.mini, hidden=4,act.fct = "logistic",
+                linear.output = FALSE)
+
+# creating test set
+Predict=compute(nn,test)
+prob <- Predict$net.result
+pred <- ifelse(prob>0.5, 1, 0)
+
+print(paste("The model predicts that ", sum(pred[,2] == 0), " are equals to 0 and ", sum(pred[,2] == 1), " are equals to 1."))
+```
+
+# Save as CSV
+
+```{r}
+predictions <- data.frame(seq(1, length(test$age)), pred[,2]) #test$age is only for the length, we can use any colomn's name
+names(predictions) <- c("id", "SeriousDlqin2yrs")
+predictions[,1] <- sprintf("%d", predictions[,1])
+predictions[,2] <- sprintf("%d", predictions[,2])
+```
+
+```{r}
+write.csv(predictions, file="DIA3_Coussin_Darcos_Cuny.csv", row.names=F)
+```
+
+
+
+
